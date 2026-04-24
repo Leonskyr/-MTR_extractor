@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>МТР Экстрактор | Корпоративный портал</title>
+<link href="https://fonts.googleapis.com/css2?family=72:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --shell-bg:       #354a5e;
+  --shell-fg:       #ffffff;
+  --shell-h:        44px;
+  --page-bg:        #f5f6f7;
+  --white:          #ffffff;
+  --border:         #d9dbdd;
+  --border-light:   #edeff0;
+  --text-1:         #32363a;
+  --text-2:         #6a6d70;
+  --text-3:         #a8aaac;
+  --accent:         #0070f2;
+  --accent-hover:   #0057c2;
+  --accent-dim:     #e8f1fd;
+  --accent-border:  #91c8f6;
+  --success:        #107e3e;
+  --success-bg:     #f1fdf6;
+  --success-border: #b5dfca;
+  --error:          #bb0000;
+  --error-bg:       #fff1f1;
+  --error-border:   #f5b8b8;
+  --warning:        #e9730c;
+  --warning-bg:     #fef7f1;
+  --info-bg:        #f0f4fb;
+  --header-h:       56px;
+  --tile-radius:    4px;
+  --font:           'IBM Plex Sans', 'Arial', sans-serif;
+  --mono:           'IBM Plex Mono', monospace;
+  --shadow-tile:    0 1px 4px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.06);
+  --shadow-btn:     0 1px 2px rgba(0,0,0,0.12);
+}
+
+body { font-family: var(--font); background: var(--page-bg); color: var(--text-1); font-size: 14px; line-height: 1.5; }
+
+/* ── SHELL BAR ── */
+.shellbar {
+  height: var(--shell-h);
+  background: var(--shell-bg);
+  display: flex; align-items: center;
+  padding: 0 16px;
+  gap: 0;
+  position: sticky; top: 0; z-index: 200;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+.shellbar-logo {
+  display: flex; align-items: center; gap: 10px;
+  padding-right: 20px;
+  border-right: 1px solid rgba(255,255,255,0.2);
+  margin-right: 20px;
+}
+.shellbar-logo-mark {
+  width: 26px; height: 26px;
+  background: #f0ab00;
+  border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #000;
+  letter-spacing: -0.5px;
+  flex-shrink: 0;
+}
+.shellbar-product {
+  font-size: 15px; font-weight: 600; color: #fff; letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.shellbar-sub {
+  font-size: 11px; color: rgba(255,255,255,0.6);
+  white-space: nowrap;
+}
+.shellbar-spacer { flex: 1; }
+.shellbar-items { display: flex; align-items: center; gap: 4px; }
+.shell-icon-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.8); font-size: 15px;
+  transition: background 0.15s;
+}
+.shell-icon-btn:hover { background: rgba(255,255,255,0.12); }
+.shell-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #f0ab00; color: #000;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  margin-left: 4px;
+}
+
+/* ── DYNAMIC PAGE HEADER ── */
+.page-header {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+}
+.page-header-inner {
+  max-width: 1280px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 56px; gap: 16px;
+}
+.page-title {
+  display: flex; align-items: center; gap: 12px;
+}
+.page-title-icon {
+  width: 32px; height: 32px;
+  background: var(--accent-dim);
+  border-radius: var(--tile-radius);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.page-title h1 { font-size: 16px; font-weight: 600; color: var(--text-1); }
+.page-title-sub { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+.breadcrumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-2);
+}
+.breadcrumb a { color: var(--accent); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb-sep { color: var(--text-3); }
+
+/* ── MAIN LAYOUT ── */
+.main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 80px; }
+
+/* ── TILES / CARDS ── */
+.tile {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--tile-radius);
+  box-shadow: var(--shadow-tile);
+  margin-bottom: 16px;
+}
+.tile-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  gap: 12px;
+}
+.tile-title {
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  display: flex; align-items: center; gap: 8px;
+}
+.tile-title-icon { font-size: 14px; }
+.tile-body { padding: 16px; }
+.tile-body.no-pad { padding: 0; }
+
+/* ── SECTION LAYOUT ── */
+.section-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 768px) { .section-row { grid-template-columns: 1fr; } }
+
+/* ── FORM ELEMENTS ── */
+.form-group { margin-bottom: 12px; }
+.form-label {
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--text-2); margin-bottom: 4px;
+}
+.form-label .required { color: var(--error); margin-left: 2px; }
+.form-control {
+  width: 100%; height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--tile-radius);
+  padding: 0 10px;
+  font-size: 13px; font-family: var(--font);
+  color: var(--text-1);
+  background: var(--white);
+  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-control:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,112,242,0.12); }
+.form-control::placeholder { color: var(--text-3); }
+.form-control.mono { font-family: var(--mono); font-size: 12px; }
+.input-group { display: flex; gap: 0; }
+.input-group .form-control { border-radius: var(--tile-radius) 0 0 var(--tile-radius); border-right: none; }
+.input-group .input-btn {
+  height: 36px; padding: 0 10px;
+  border: 1px solid var(--border); border-left: none;
+  border-radius: 0 var(--tile-radius) var(--tile-radius) 0;
+  background: var(--page-bg); cursor: pointer;
+  color: var(--text-2); font-size: 13px;
+  transition: background 0.15s;
+}
+.input-group .input-btn:hover { background: var(--border-light); }
+
+/* API status indicator */
+.api-indicator {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 6px 10px;
+  border-radius: var(--tile-radius);
+  border: 1px solid var(--border-light);
+  background: var(--page-bg);
+}
+.indicator-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-3); flex-shrink: 0;
+}
+.indicator-dot.ok { background: var(--success); }
+.indicator-dot.error { background: var(--error); }
+
+/* ── UPLOAD AREA ── */
+.upload-area {
+  border: 1px dashed var(--border);
+  border-radius: var(--tile-radius);
+  background: var(--page-bg);
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+}
+.upload-area:hover { border-color: var(--accent); background: var(--accent-dim); }
+.upload-area.drag-over { border-color: var(--accent); background: var(--accent-dim); border-style: solid; }
+.upload-icon { font-size: 28px; margin-bottom: 10px; display: block; }
+.upload-title { font-size: 14px; font-weight: 500; color: var(--text-1); margin-bottom: 4px; }
+.upload-sub { font-size: 12px; color: var(--text-2); }
+.upload-formats { display: flex; gap: 6px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+.fmt-tag {
+  padding: 2px 8px; border-radius: 2px;
+  background: var(--white); border: 1px solid var(--border);
+  font-size: 11px; font-family: var(--mono); color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+/* File table */
+.file-table { width: 100%; border-collapse: collapse; }
+.file-table th {
+  text-align: left; padding: 8px 12px;
+  font-size: 11px; font-weight: 600; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--page-bg);
+}
+.file-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13px; color: var(--text-1);
+  vertical-align: middle;
+}
+.file-table tr:last-child td { border-bottom: none; }
+.file-ext-badge {
+  display: inline-block; padding: 1px 6px;
+  border-radius: 2px; font-size: 10px;
+  font-family: var(--mono); font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.ext-pdf { background: #fbeaea; color: var(--error); border: 1px solid #f5c6c6; }
+.ext-img { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-border); }
+.file-status { font-size: 11px; color: var(--text-3); }
+.file-status.ready { color: var(--success); }
+.btn-icon {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 15px; padding: 2px 6px;
+  border-radius: 2px; transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.btn-icon:hover { color: var(--error); background: var(--error-bg); }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: var(--tile-radius);
+  font-size: 13px; font-weight: 500; font-family: var(--font);
+  cursor: pointer; border: 1px solid transparent;
+  padding: 0 14px; height: 36px;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+  box-shadow: var(--shadow-btn);
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+.btn-emphasized {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.btn-emphasized:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-standard {
+  background: var(--white); color: var(--text-1); border-color: var(--border);
+}
+.btn-standard:hover { background: var(--page-bg); border-color: #b5b8ba; }
+.btn-ghost {
+  background: transparent; color: var(--accent); border-color: transparent; box-shadow: none;
+}
+.btn-ghost:hover { background: var(--accent-dim); }
+.btn-negative {
+  background: var(--white); color: var(--error); border-color: var(--error);
+}
+.btn-negative:hover { background: var(--error-bg); }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+
+/* Toolbar */
+.toolbar {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.toolbar-separator {
+  width: 1px; height: 20px; background: var(--border); margin: 0 4px;
+}
+
+/* ── PROGRESS ── */
+.progress-wrap { padding: 16px; }
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.progress-label { font-size: 13px; color: var(--text-1); font-weight: 500; }
+.progress-pct { font-size: 12px; font-family: var(--mono); color: var(--text-2); }
+.progress-track {
+  height: 6px; background: var(--border-light);
+  border-radius: 3px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 3px; transition: width 0.4s ease;
+  width: 0;
+}
+.process-steps {
+  display: flex; gap: 0; margin-top: 16px;
+  border: 1px solid var(--border); border-radius: var(--tile-radius);
+  overflow: hidden;
+}
+.process-step {
+  flex: 1; padding: 8px 12px;
+  border-right: 1px solid var(--border);
+  font-size: 11px; color: var(--text-3); transition: all 0.3s;
+  display: flex; align-items: center; gap: 6px;
+}
+.process-step:last-child { border-right: none; }
+.process-step.active { background: var(--accent-dim); color: var(--accent); font-weight: 500; }
+.process-step.done { background: var(--success-bg); color: var(--success); }
+.step-num {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; flex-shrink: 0; font-weight: 600;
+}
+.process-step.done .step-num { background: var(--success); border-color: var(--success); color: #fff; }
+.process-step.done .step-num::before { content: '✓'; }
+
+/* ── MESSAGE STRIP ── */
+.message-strip {
+  display: none; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-radius: var(--tile-radius);
+  font-size: 13px; border: 1px solid;
+  margin-bottom: 16px;
+}
+.message-strip.show { display: flex; }
+.message-strip.success { background: var(--success-bg); border-color: var(--success-border); color: var(--success); }
+.message-strip.error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
+.message-strip.info { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
+.message-strip.warning { background: var(--warning-bg); border-color: #f5c98d; color: var(--warning); }
+.message-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.message-close { margin-left: auto; cursor: pointer; color: inherit; font-size: 16px; background: none; border: none; padding: 0; opacity: 0.6; }
+.message-close:hover { opacity: 1; }
+
+/* ── DATA TABLE ── */
+.results-toolbar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.results-count {
+  font-size: 12px; color: var(--text-2); margin-left: auto;
+}
+.data-table-wrap { overflow-x: auto; }
+table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1100px; }
+table.data-table thead th {
+  background: #f5f6f7;
+  padding: 8px 10px;
+  text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--text-2); text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 2px solid var(--border);
+  border-right: 1px solid var(--border-light);
+  white-space: nowrap; position: sticky; top: 0;
+  user-select: none;
+}
+table.data-table thead th:first-child { width: 44px; text-align: center; border-left: none; }
+table.data-table thead th:last-child { border-right: none; width: 36px; }
+table.data-table tbody tr { transition: background 0.1s; }
+table.data-table tbody tr:hover { background: #f9fafb; }
+table.data-table tbody tr:not(:last-child) td { border-bottom: 1px solid var(--border-light); }
+table.data-table tbody td {
+  padding: 4px 6px; border-right: 1px solid var(--border-light);
+  vertical-align: middle;
+}
+table.data-table tbody td:first-child {
+  text-align: center; font-family: var(--mono); font-size: 11px;
+  color: var(--text-3); border-right: 1px solid var(--border);
+}
+table.data-table tbody td:last-child { border-right: none; text-align: center; }
+.cell-input {
+  width: 100%; min-width: 80px;
+  border: 1px solid transparent; border-radius: 2px;
+  padding: 4px 6px; font-size: 12px;
+  font-family: var(--font); color: var(--text-1);
+  background: transparent; outline: none;
+  transition: all 0.1s;
+}
+.cell-input:focus {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  box-shadow: 0 0 0 1px rgba(0,112,242,0.15);
+}
+.cell-input::placeholder { color: var(--text-3); }
+.cell-input.wide { min-width: 180px; }
+.cell-input.medium { min-width: 110px; }
+.cell-input.narrow { min-width: 60px; }
+.cell-input.spec { min-width: 220px; }
+
+/* Table footer */
+.table-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-light);
+  background: var(--page-bg);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; color: var(--text-2);
+  font-family: var(--mono);
+}
+
+/* ── FOOTER BAR ── */
+.footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--white);
+  border-top: 1px solid var(--border);
+  padding: 10px 24px;
+  z-index: 100; display: none;
+}
+.footer-bar.show { display: block; }
+.footer-bar-inner {
+  max-width: 1280px; margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+}
+.footer-info { font-size: 12px; color: var(--text-2); margin-left: auto; }
+.footer-info strong { color: var(--success); font-weight: 600; }
+
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: none; flex-shrink: 0;
+}
+.spinner.dark {
+  border-color: rgba(0,112,242,0.3);
+  border-top-color: var(--accent);
+}
+
+/* Helper classes */
+.hidden { display: none !important; }
+.text-sm { font-size: 12px; color: var(--text-2); }
+.mt-8 { margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ── SHELL BAR ── -->
+<div class="shellbar">
+  <div class="shellbar-logo">
+    <div class="shellbar-logo-mark">МТР</div>
+    <div>
+      <div class="shellbar-product">МТР Экстрактор</div>
+    </div>
+  </div>
+  <div class="shellbar-sub">Корпоративный портал кодирования материалов</div>
+  <div class="shellbar-spacer"></div>
+  <div class="shellbar-items">
+    <button class="shell-icon-btn" title="Уведомления">🔔</button>
+    <button class="shell-icon-btn" title="Настройки">⚙</button>
+    <button class="shell-icon-btn" title="Помощь">❓</button>
+    <div class="shell-avatar" title="Пользователь">АА</div>
+  </div>
+</div>
+
+<!-- ── PAGE HEADER ── -->
+<div class="page-header">
+  <div class="page-header-inner">
+    <div class="page-title">
+      <div class="page-title-icon">📋</div>
+      <div>
+        <h1>Массовое кодирование МТР</h1>
+        <div class="page-title-sub">Создание записей справочника из каталогов поставщиков</div>
+      </div>
+    </div>
+    <div class="breadcrumb">
+      <a href="#">Главная</a>
+      <span class="breadcrumb-sep">›</span>
+      <a href="#">Справочник МТР</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Массовое кодирование</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── MAIN ── -->
+<div class="main">
+
+  <!-- Message strip -->
+  <div class="message-strip" id="messageStrip">
+    <span class="message-icon" id="messageIcon">ℹ</span>
+    <span id="messageText"></span>
+    <button class="message-close" onclick="closeMessage()">×</button>
+  </div>
+
+  <!-- Section: Settings -->
+  <div class="section-row">
+
+    <!-- Server status -->
+    <div class="tile">
+      <div class="tile-header">
+        <div class="tile-title"><span class="tile-title-icon">🟢</span> Статус сервиса</div>
+        <div class="api-indicator">
+          <div class="indicator-dot ok"></div>
+          <span>AI-сервис активен</span>
+        </div>
+      </div>
+      <div class="tile-body">
+        <div class="text-sm" style="line-height:1.8">
+          Сервис работает в корпоративном режиме.<br>
+          API-ключ настроен администратором — вам ничего вводить не нужно.<br>
+          Загружайте файл каталога и нажимайте «Запустить извлечение».
+        </div>
+      </div>
+    </div>
+
+    <!-- Шаблон -->
+    <div class="tile">
+      <div class="tile-header">
+        <div class="tile-title"><span class="tile-title-icon">📄</span> Целевой шаблон</div>
+        <span style="font-size:11px;color:var(--text-3);font-family:var(--mono)">v1.0</span>
+      </div>
+      <div class="tile-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px;">
+          <div style="color:var(--text-2)">Тип шаблона</div><div style="font-weight:500">НН МТР массовое кодирование</div>
+          <div style="color:var(--text-2)">Формат выгрузки</div><div style="font-weight:500">Microsoft Excel (.xlsx)</div>
+          <div style="color:var(--text-2)">Количество полей</div><div style="font-weight:500">12 колонок</div>
+          <div style="color:var(--text-2)">Причина создания</div><div style="font-weight:500">Создание новой записи МТР</div>
+        </div>
+        <div class="mt-8" style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">Ед. изм.</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">Наименование</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">Марка/Размер</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">Каталожный №</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">ГОСТ/ТУ</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">Техн. характ.</span>
+          <span style="font-size:11px;padding:2px 8px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:2px;font-family:var(--mono)">+6 полей</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="tile">
+    <div class="tile-header">
+      <div class="tile-title"><span class="tile-title-icon">📁</span> Загрузка каталогов</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('fileInput').click()">+ Добавить файлы</button>
+    </div>
+    <div class="tile-body">
+      <div class="upload-area" id="dropZone">
+        <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png" multiple style="display:none">
+        <span class="upload-icon">📂</span>
+        <div class="upload-title">Перетащите файлы каталогов поставщиков</div>
+        <div class="upload-sub">Или нажмите для выбора. Поддерживается обработка нескольких файлов одновременно.</div>
+        <div class="upload-formats">
+          <span class="fmt-tag">PDF</span>
+          <span class="fmt-tag">JPG</span>
+          <span class="fmt-tag">JPEG</span>
+          <span class="fmt-tag">PNG</span>
+        </div>
+      </div>
+
+      <div id="fileTableWrap" class="hidden" style="margin-top:12px">
+        <table class="file-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Файл</th>
+              <th>Тип</th>
+              <th>Размер</th>
+              <th>Статус</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fileTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="tile hidden" id="actionsCard">
+    <div class="tile-body" style="padding:12px 16px">
+      <div class="toolbar">
+        <button class="btn btn-emphasized" id="extractBtn" onclick="runExtraction()">
+          <div class="spinner" id="spinner"></div>
+          <span id="extractBtnText">Запустить извлечение</span>
+        </button>
+        <button class="btn btn-standard" onclick="resetAll()">Сбросить</button>
+        <div class="toolbar-separator"></div>
+        <span class="text-sm" id="toolbarHint">Выберите файлы и нажмите «Запустить извлечение»</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="tile hidden" id="progressCard">
+    <div class="tile-header">
+      <div class="tile-title"><span class="tile-title-icon">⏳</span> Обработка</div>
+      <span class="text-sm" id="progressPct">0%</span>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-header">
+        <span class="progress-label" id="progressLabel">Подготовка...</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="process-steps">
+        <div class="process-step" id="pstep1"><div class="step-num">1</div>Чтение файла</div>
+        <div class="process-step" id="pstep2"><div class="step-num">2</div>AI-анализ</div>
+        <div class="process-step" id="pstep3"><div class="step-num">3</div>Структурирование</div>
+        <div class="process-step" id="pstep4"><div class="step-num">4</div>Готово</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="tile hidden" id="resultsCard">
+    <div class="tile-header">
+      <div class="tile-title"><span class="tile-title-icon">✅</span> Позиции МТР</div>
+      <span class="results-count" id="resultsCount">0 записей</span>
+    </div>
+    <div class="results-toolbar">
+      <button class="btn btn-emphasized btn-sm" onclick="downloadExcel()">⬇ Выгрузить в Excel</button>
+      <button class="btn btn-standard btn-sm" onclick="addEmptyRow()">+ Добавить строку</button>
+      <div class="toolbar-separator"></div>
+      <span class="text-sm">Ячейки доступны для редактирования перед выгрузкой</span>
+    </div>
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Ед. изм.</th>
+            <th>Наименование МТР</th>
+            <th>Марка / Размер</th>
+            <th>Каталожный №</th>
+            <th>ГОСТ / ТУ</th>
+            <th>Техн. характеристика</th>
+            <th>Усл. обозн.</th>
+            <th title="Заполняется пользователем вручную">Класс МТР ✎</th>
+            <th title="Заполняется пользователем вручную">Комментарий ✎</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <div class="table-footer">
+      <span id="tableFooterInfo">0 строк · 0 колонок заполнено</span>
+      <span>Шаблон: НН МТР массовое кодирование v1.0</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer Bar -->
+<div class="footer-bar" id="footerBar">
+  <div class="footer-bar-inner">
+    <button class="btn btn-emphasized" onclick="downloadExcel()">⬇ Выгрузить в Excel</button>
+    <button class="btn btn-standard" onclick="resetAll()">Новая обработка</button>
+    <span class="footer-info">Готово к выгрузке: <strong id="footerCount">0 записей</strong> · Шаблон НН МТР</span>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let files = [];
+let rows = [];
+
+// ── API Key ──
+const apiKeyInput = document.getElementById('apiKey');
+const saved = localStorage.getItem('mtr_api_key_v2');
+if (saved) apiKeyInput.value = saved;
+updateApiStatus();
+
+apiKeyInput.addEventListener('input', () => {
+  localStorage.setItem('mtr_api_key_v2', apiKeyInput.value.trim());
+  updateApiStatus();
+});
+
+function updateApiStatus() {
+  const v = apiKeyInput.value.trim();
+  const dot = document.getElementById('apiDot');
+  const txt = document.getElementById('apiIndicatorText');
+  if (v.startsWith('sk-ant') || v.startsWith('sk-')) {
+    dot.className = 'indicator-dot ok';
+    txt.textContent = 'Подключён';
+  } else if (v.length > 0) {
+    dot.className = 'indicator-dot error';
+    txt.textContent = 'Неверный формат';
+  } else {
+    dot.className = 'indicator-dot';
+    txt.textContent = 'Не настроен';
+  }
+}
+
+function toggleApiVis() {
+  apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
+}
+
+// ── Messages ──
+function showMessage(text, type) {
+  const strip = document.getElementById('messageStrip');
+  const icons = { success: '✔', error: '✖', info: 'ℹ', warning: '⚠' };
+  document.getElementById('messageIcon').textContent = icons[type] || 'ℹ';
+  document.getElementById('messageText').textContent = text;
+  strip.className = 'message-strip show ' + type;
+  strip.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function closeMessage() {
+  document.getElementById('messageStrip').className = 'message-strip';
+}
+
+// ── File upload ──
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  addFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', e => { addFiles([...e.target.files]); fileInput.value = ''; });
+
+function addFiles(newFiles) {
+  const ok = ['pdf','jpg','jpeg','png'];
+  let added = 0;
+  newFiles.forEach(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (ok.includes(ext) && !files.find(x => x.name === f.name)) {
+      files.push(f); added++;
+    }
+  });
+  if (added === 0 && newFiles.length > 0) showMessage('Неподдерживаемый формат файла. Допустимы: PDF, JPG, JPEG, PNG', 'warning');
+  renderFileTable();
+}
+
+function removeFile(i) { files.splice(i, 1); renderFileTable(); }
+
+function renderFileTable() {
+  const wrap = document.getElementById('fileTableWrap');
+  const tbody = document.getElementById('fileTableBody');
+  const actionsCard = document.getElementById('actionsCard');
+  tbody.innerHTML = '';
+
+  files.forEach((f, i) => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    const isPdf = ext === 'pdf';
+    const size = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+' МБ' : Math.round(f.size/1024)+' КБ';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:var(--text-3);font-family:var(--mono);font-size:11px;width:32px;text-align:center">${i+1}</td>
+      <td style="font-weight:500">${f.name}</td>
+      <td><span class="file-ext-badge ${isPdf ? 'ext-pdf' : 'ext-img'}">${ext.toUpperCase()}</span></td>
+      <td style="color:var(--text-2);font-family:var(--mono);font-size:11px">${size}</td>
+      <td><span class="file-status ready">Готов к обработке</span></td>
+      <td><button class="btn-icon" onclick="removeFile(${i})" title="Удалить">×</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  wrap.classList.toggle('hidden', files.length === 0);
+  actionsCard.classList.toggle('hidden', files.length === 0);
+
+  const hint = document.getElementById('toolbarHint');
+  if (files.length > 0) hint.textContent = `Выбрано файлов: ${files.length}. Нажмите «Запустить извлечение».`;
+}
+
+// ── Progress ──
+function setProgress(pct, label, stepIdx) {
+  document.getElementById('progressCard').classList.remove('hidden');
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressPct').textContent = pct + '%';
+  ['pstep1','pstep2','pstep3','pstep4'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (i < stepIdx) el.className = 'process-step done';
+    else if (i === stepIdx) el.className = 'process-step active';
+    else el.className = 'process-step';
+  });
+}
+
+// ── Extraction ──
+async function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function runExtraction() {
+  if (!files.length) { showMessage('Добавьте хотя бы один файл каталога', 'error'); return; }
+
+  const btn = document.getElementById('extractBtn');
+  btn.disabled = true;
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('extractBtnText').textContent = 'Обработка...';
+  document.getElementById('resultsCard').classList.add('hidden');
+  document.getElementById('footerBar').className = 'footer-bar';
+  closeMessage();
+
+  const allRows = [];
+
+  try {
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
+      const suffix = files.length > 1 ? ` (${fi+1}/${files.length})` : '';
+
+      setProgress(10, `Чтение файла${suffix}...`, 0);
+      const b64 = await toBase64(file);
+      const ext = file.name.split('.').pop().toLowerCase();
+      const mime = ext === 'pdf' ? 'application/pdf' : 'image/jpeg';
+
+      const contentBlock = ext === 'pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+        : { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } };
+
+      setProgress(35 + fi * Math.floor(40 / files.length), `AI-анализ каталога${suffix}...`, 1);
+
+      const prompt = `Ты — точный экстрактор данных из технических каталогов МТР (материально-технические ресурсы) для корпоративного справочника.
+
+Из прикреплённого документа извлеки ВСЕ позиции товаров и материалов.
+
+Верни ТОЛЬКО JSON-массив объектов. Никакого текста вокруг, никаких markdown-блоков, никаких пояснений.
+
+Каждый объект должен содержать строго эти поля (если данных нет — пустая строка ""):
+{
+  "unit": "базовая единица измерения (ШТ, КГ, М, М2, М3, УП, КОМ, ЛИТ и т.д.)",
+  "name": "полное техническое наименование МТР",
+  "brand": "марка, модель, типоразмер",
+  "article": "каталожный номер или артикул производителя",
+  "gost": "ГОСТ, ТУ, НТД — только номер стандарта",
+  "spec": "технические характеристики подробно: напряжение, ток, мощность, материал, габариты, давление, температура и т.д.",
+  "symbol": "условное обозначение или аббревиатура"
+}
+
+Поля "class" и "comment" НЕ заполнять — их заполнит пользователь вручную.
+Если поля нет в документе — пустая строка "". Все значения точно из документа, не придумывай.`;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const resp = await fetch('/api/extract', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+
+      setProgress(75, `Структурирование данных${suffix}...`, 2);
+
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      const parsed = data.rows;
+
+      if (Array.isArray(parsed)) allRows.push(...parsed);
+      else if (parsed && typeof parsed === 'object') allRows.push(parsed);
+    }
+
+    setProgress(100, 'Обработка завершена', 3);
+    rows = allRows;
+    renderTable();
+
+    document.getElementById('resultsCard').classList.remove('hidden');
+    document.getElementById('resultsCount').textContent = rows.length + ' записей';
+    document.getElementById('footerBar').className = 'footer-bar show';
+    document.getElementById('footerCount').textContent = rows.length + ' записей';
+    showMessage(`Успешно извлечено ${rows.length} позиций МТР. Проверьте данные перед выгрузкой.`, 'success');
+    document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch (e) {
+    showMessage('Ошибка при обработке: ' + e.message, 'error');
+    document.getElementById('progressCard').classList.add('hidden');
+  }
+
+  btn.disabled = false;
+  document.getElementById('spinner').style.display = 'none';
+  document.getElementById('extractBtnText').textContent = 'Запустить извлечение';
+}
+
+// ── Table ──
+const FIELDS = ['unit','name','brand','article','gost','spec','symbol','class','comment'];
+const CLS    = ['narrow','medium','wide','medium','medium','spec','medium','medium','medium'];
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  rows.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    let cells = `<td>${i+1}</td>`;
+    FIELDS.forEach((f, fi) => {
+      const v = (row[f] || '').replace(/"/g,'&quot;');
+      cells += `<td><input class="cell-input ${CLS[fi]}" value="${v}" placeholder="—" onchange="rows[${i}]['${f}']=this.value"></td>`;
+    });
+    cells += `<td><button class="btn-icon" onclick="deleteRow(${i})" title="Удалить строку">×</button></td>`;
+    tr.innerHTML = cells;
+    tbody.appendChild(tr);
+  });
+  updateTableFooter();
+}
+
+function deleteRow(i) {
+  rows.splice(i, 1);
+  renderTable();
+  document.getElementById('resultsCount').textContent = rows.length + ' записей';
+  document.getElementById('footerCount').textContent = rows.length + ' записей';
+}
+
+function addEmptyRow() {
+  const e = {}; FIELDS.forEach(f => e[f] = '');
+  rows.push(e);
+  renderTable();
+  document.getElementById('resultsCount').textContent = rows.length + ' записей';
+  document.getElementById('footerCount').textContent = rows.length + ' записей';
+  document.getElementById('tableBody').lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateTableFooter() {
+  const filled = rows.reduce((acc, r) => acc + FIELDS.filter(f => r[f]).length, 0);
+  document.getElementById('tableFooterInfo').textContent =
+    `${rows.length} строк · ${filled} ячеек заполнено`;
+}
+
+// ── Excel ──
+function downloadExcel() {
+  if (!rows.length) { showMessage('Нет данных для выгрузки', 'warning'); return; }
+  const wb = XLSX.utils.book_new();
+  const HEADERS = [
+    'Комментарий к запросу','Базовая единица измерения','Наименование МТР',
+    'Марка/Размер','Каталожный номер/артикул','ГОСТ/ТУ, НТД','Номер чертежа/ОЛ',
+    'Техническая характеристика','Класс МТР','Причина создания записи МТР',
+    'Условное обозначение','Код класса'
+  ];
+  const data = [HEADERS];
+  rows.forEach(r => data.push([
+    '',          // Комментарий к запросу — заполняет пользователь
+    r.unit||'', r.name||'', r.brand||'', r.article||'',
+    r.gost||'', '', r.spec||'',
+    '',          // Класс МТР — заполняет пользователь
+    'Создание новой записи МТР', r.symbol||'', ''
+  ]));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:30},{wch:10},{wch:40},{wch:22},{wch:22},{wch:20},{wch:15},{wch:55},{wch:18},{wch:35},{wch:18},{wch:12}];
+  HEADERS.forEach((_,i) => {
+    const ref = XLSX.utils.encode_cell({r:0,c:i});
+    if (ws[ref]) ws[ref].s = { font:{bold:true}, fill:{fgColor:{rgb:'D9E4F5'}}, alignment:{wrapText:true} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws, 'Справочник МТР');
+  const d = new Date();
+  const ds = `${d.getDate().toString().padStart(2,'0')}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getFullYear()}`;
+  XLSX.writeFile(wb, `МТР_массовое_кодирование_${ds}.xlsx`);
+}
+
+// ── Reset ──
+function resetAll() {
+  files = []; rows = [];
+  renderFileTable();
+  document.getElementById('progressCard').classList.add('hidden');
+  document.getElementById('resultsCard').classList.add('hidden');
+  document.getElementById('footerBar').className = 'footer-bar';
+  closeMessage();
+}
+</script>
+</body>
+</html>
