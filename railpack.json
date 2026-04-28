@@ -1,0 +1,6 @@
+{
+  "python": {
+    "version": "3.11"
+  },
+  "aptPackages": ["tesseract-ocr", "tesseract-ocr-rus", "tesseract-ocr-eng", "poppler-utils"]
+}
