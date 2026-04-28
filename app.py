@@ -1,20 +1,19 @@
 """
 МТР Экстрактор — Flask-сервер
-PDF/JPEG → Markdown (docling или Tesseract OCR) → Claude → Excel-данные
+PDF/JPEG/PNG → Claude API (native vision) → JSON позиций МТР
 """
 from __future__ import annotations
 
-import os
+import base64
 import json
+import os
+import re
 import tempfile
+
 import anthropic
 from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder="public")
-
-# ── Константы ──────────────────────────────────────────────────────────────
-SCAN_THRESHOLD = 50   # если docling вернул меньше символов — считаем скан
-MAX_CHUNK_CHARS = 12_000  # максимум символов в одном запросе к Claude
 
 REQUIRED_FIELDS = {
     "unit":    "Единица измерения",
@@ -28,7 +27,7 @@ REQUIRED_FIELDS = {
 
 PROMPT = """Ты — точный экстрактор данных из технических каталогов МТР для корпоративного справочника.
 
-Из прикреплённого текста (конвертированного из каталога) извлеки ВСЕ позиции товаров и материалов.
+Из прикреплённого документа извлеки ВСЕ позиции товаров и материалов.
 
 Верни ТОЛЬКО JSON-массив объектов. Никакого текста вокруг, никаких markdown-блоков, никаких пояснений.
 
@@ -39,169 +38,83 @@ PROMPT = """Ты — точный экстрактор данных из тех�
   "brand":   "тип, марка, модель — например REG, AN, H, K, SHU или другое обозначение",
   "article": "каталожный номер точно как в документе",
   "gost":    "ГОСТ или ТУ если есть, иначе пустая строка",
-  "spec":    "ВСЕ технические параметры через точку с запятой. Если таблица содержит строки-заголовки групп (например 'Внутренний диаметр - 1,50 дюйма') — включай этот параметр в spec каждой позиции группы",
+  "spec":    "ВСЕ технические параметры через точку с запятой. Если таблица содержит строки-заголовки групп — включай этот параметр в spec каждой позиции группы",
   "symbol":  "условное обозначение если есть, иначе пустая строка"
 }
 
 Правила:
 1. Каждая строка данных = отдельный объект в массиве
 2. Строки-заголовки групп — НЕ отдельные позиции, а параметры для позиций ниже
-3. Все значения точно из текста, не придумывай
-4. Поля class и comment НЕ заполнять — их заполнит пользователь вручную
-
-Текст каталога:
-"""
+3. Все значения точно из документа, не придумывай
+4. Поля class и comment НЕ заполнять — их заполнит пользователь вручную"""
 
 
-# ── Конвертация в Markdown ─────────────────────────────────────────────────
+# ── Claude (native document/vision API) ───────────────────────────────────────
 
-def pdf_to_markdown(path: str) -> tuple[str, str | None]:
-    """PDF → текст через pdfplumber, фолбэк на Tesseract для сканов."""
-    try:
-        import pdfplumber
-
-        pages_text = []
-        with pdfplumber.open(path) as pdf:
-            for i, page in enumerate(pdf.pages):
-                text = page.extract_text() or ""
-                # Извлекаем таблицы отдельно
-                tables = page.extract_tables()
-                table_md = ""
-                for table in tables:
-                    if table:
-                        rows = []
-                        for row in table:
-                            cells = [str(c or "").strip() for c in row]
-                            rows.append(" | ".join(cells))
-                        table_md += "\n" + "\n".join(rows) + "\n"
-                pages_text.append(f"## Страница {i+1}\n\n{text}\n{table_md}")
-
-        full_text = "\n\n".join(pages_text).strip()
-
-        # Если текста мало — скан, запускаем OCR
-        if len(full_text.replace(" ", "").replace("\n", "")) < SCAN_THRESHOLD:
-            return _tesseract_pdf(path)
-
-        return full_text, None
-
-    except Exception as e:
-        # Фолбэк на OCR
-        try:
-            return _tesseract_pdf(path)
-        except Exception:
-            raise RuntimeError(f"Ошибка конвертации PDF: {e}")
-
-
-def _tesseract_pdf(path: str) -> tuple[str, str | None]:
-    """PDF → изображения → Tesseract OCR → Markdown."""
-    try:
-        import pytesseract
-        from pdf2image import convert_from_path
-        from PIL import Image
-
-        pages = convert_from_path(path, dpi=200)
-        lines = []
-        for i, page in enumerate(pages):
-            text = pytesseract.image_to_string(page, lang="rus+eng")
-            lines.append(f"## Страница {i+1}\n\n{text}")
-
-        return "\n\n".join(lines), "Файл распознан через Tesseract OCR."
-
-    except Exception as e:
-        raise RuntimeError(f"Ошибка OCR: {e}")
-
-
-def image_to_markdown(path: str) -> tuple[str, str | None]:
-    """JPEG/PNG → Tesseract OCR → текст."""
-    try:
-        import pytesseract
-        from PIL import Image
-
-        img = Image.open(path)
-        text = pytesseract.image_to_string(img, lang="rus+eng")
-        return text, "Изображение распознано через Tesseract OCR."
-
-    except Exception as e:
-        raise RuntimeError(f"Ошибка OCR изображения: {e}")
-
-
-# ── Claude ─────────────────────────────────────────────────────────────────
-
-def extract_with_claude(text: str, api_key: str) -> list[dict]:
-    """Отправляет текст в Claude, получает список позиций МТР."""
+def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
+    """Отправляет файл напрямую в Claude API (PDF или изображение)."""
     client = anthropic.Anthropic(api_key=api_key)
-    all_rows = []
 
-    # Разбиваем на чанки если текст большой
-    chunks = _split_text(text, MAX_CHUNK_CHARS)
+    with open(file_path, "rb") as f:
+        data = base64.standard_b64encode(f.read()).decode("utf-8")
 
-    for chunk in chunks:
-        message = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": PROMPT + chunk}]
-        )
-        raw = message.content[0].text.strip()
-        clean = raw.replace("```json", "").replace("```", "").strip()
+    if ext == "pdf":
+        file_block: dict = {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": data},
+        }
+    elif ext == "png":
+        file_block = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": data},
+        }
+    else:  # jpg / jpeg
+        file_block = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": data},
+        }
 
-        try:
-            parsed = json.loads(clean)
-            if isinstance(parsed, list):
-                all_rows.extend(parsed)
-            elif isinstance(parsed, dict):
-                all_rows.append(parsed)
-        except json.JSONDecodeError:
-            # Пробуем найти массив в тексте
-            import re
-            match = re.search(r'\[[\s\S]*\]', clean)
-            if match:
-                try:
-                    all_rows.extend(json.loads(match.group()))
-                except Exception:
-                    pass
+    message = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=8000,
+        messages=[{
+            "role": "user",
+            "content": [file_block, {"type": "text", "text": PROMPT}],
+        }],
+    )
 
-    return all_rows
+    return _parse_response(message.content[0].text)
 
 
-def _split_text(text: str, chunk_size: int) -> list[str]:
-    """Разбивает текст на чанки по абзацам."""
-    if len(text) <= chunk_size:
-        return [text]
-
-    chunks = []
-    paragraphs = text.split("\n\n")
-    current = []
-    current_len = 0
-
-    for para in paragraphs:
-        if current_len + len(para) > chunk_size and current:
-            chunks.append("\n\n".join(current))
-            current = [para]
-            current_len = len(para)
-        else:
-            current.append(para)
-            current_len += len(para)
-
-    if current:
-        chunks.append("\n\n".join(current))
-
-    return chunks
+def _parse_response(raw: str) -> list[dict]:
+    clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        parsed = json.loads(clean)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            return [parsed]
+    except json.JSONDecodeError:
+        match = re.search(r"\[[\s\S]*\]", clean)
+        if match:
+            try:
+                return json.loads(match.group())
+            except Exception:
+                pass
+    return []
 
 
 # ── Анализ полноты ─────────────────────────────────────────────────────────
 
 def analyze_completeness(rows: list[dict]) -> list[str]:
-    """Возвращает список полей где >30% строк пустые."""
     if not rows:
         return []
-
     warnings = []
     for field, label in REQUIRED_FIELDS.items():
-        empty = sum(1 for r in rows if not r.get(field, "").strip())
+        empty = sum(1 for r in rows if not str(r.get(field, "")).strip())
         pct = round(empty / len(rows) * 100)
         if pct > 30:
             warnings.append(f"«{label}» (не заполнено в {pct}% позиций)")
-
     return warnings
 
 
@@ -229,44 +142,32 @@ def extract():
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    # Сохраняем во временный файл
+    if ext not in ("pdf", "jpg", "jpeg", "png"):
+        return jsonify({"error": f"Формат .{ext} не поддерживается"}), 400
+
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, filename)
     file.save(tmp_path)
 
     try:
-        # Конвертируем в текст
-        if ext == "pdf":
-            md_text, ocr_warning = pdf_to_markdown(tmp_path)
-        elif ext in ("jpg", "jpeg", "png"):
-            md_text, ocr_warning = image_to_markdown(tmp_path)
-        else:
-            return jsonify({"error": f"Формат .{ext} не поддерживается"}), 400
-
-        if not md_text.strip():
-            return jsonify({"error": "Не удалось извлечь текст из файла"}), 422
-
-        # Извлекаем позиции через Claude
-        rows = extract_with_claude(md_text, api_key)
-
-        # Анализируем полноту
+        rows = extract_with_claude(tmp_path, ext, api_key)
         warnings = analyze_completeness(rows)
-        is_partial = len(warnings) > 0
 
         return jsonify({
             "rows": rows,
             "warnings": warnings,
-            "isPartial": is_partial,
-            "ocr_warning": ocr_warning,
+            "isPartial": len(warnings) > 0,
+            "ocr_warning": None,
             "total": len(rows),
         })
 
+    except anthropic.BadRequestError as e:
+        return jsonify({"error": f"Файл не поддерживается Claude API: {e}"}), 422
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 422
     except Exception as e:
         return jsonify({"error": f"Внутренняя ошибка: {e}"}), 500
     finally:
-        # Удаляем временный файл
         try:
             os.remove(tmp_path)
             os.rmdir(tmp_dir)
