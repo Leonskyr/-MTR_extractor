@@ -75,13 +75,19 @@ def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
         }
 
     message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=8000,
+        model="claude-opus-4-7",
+        max_tokens=16000,
         messages=[{
             "role": "user",
             "content": [file_block, {"type": "text", "text": PROMPT}],
         }],
     )
+
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "Ответ модели был обрезан (слишком много позиций). "
+            "Попробуйте разбить каталог на несколько файлов."
+        )
 
     return _parse_response(message.content[0].text)
 
