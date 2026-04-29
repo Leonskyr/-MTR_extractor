@@ -934,25 +934,26 @@ function updateTableFooter() {
 function downloadExcel() {
   if (!rows.length) { showMessage('Нет данных для выгрузки', 'warning'); return; }
   const wb = XLSX.utils.book_new();
-  const HEADERS = [
+  const HDR1 = [
     'Комментарий к запросу','Базовая единица измерения','Наименование МТР',
     'Марка/Размер','Каталожный номер/артикул','ГОСТ/ТУ, НТД','Номер чертежа/ОЛ',
-    'Техническая характеристика','Класс МТР','Причина создания записи МТР',
-    'Условное обозначение','Код класса'
+    'Техническая характеристика','Класс МТР','Причина создания записи МТР'
   ];
-  const data = [HEADERS];
+  const HDR2 = ['','Условное обозначение','','','','','','','Код класса',''];
+  const data = [HDR1, HDR2];
   rows.forEach(r => data.push([
-    '',          // Комментарий к запросу — заполняет пользователь
+    '',
     r.unit||'', r.name||'', r.brand||'', r.article||'',
     r.gost||'', '', r.spec||'',
-    '',          // Класс МТР — заполняет пользователь
-    'Создание новой записи МТР', r.symbol||'', ''
+    '', ''
   ]));
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [{wch:30},{wch:10},{wch:40},{wch:22},{wch:22},{wch:20},{wch:15},{wch:55},{wch:18},{wch:35},{wch:18},{wch:12}];
-  HEADERS.forEach((_,i) => {
-    const ref = XLSX.utils.encode_cell({r:0,c:i});
-    if (ws[ref]) ws[ref].s = { font:{bold:true}, fill:{fgColor:{rgb:'D9E4F5'}}, alignment:{wrapText:true} };
+  ws['!cols'] = [{wch:30},{wch:12},{wch:40},{wch:22},{wch:22},{wch:20},{wch:15},{wch:55},{wch:18},{wch:35}];
+  [HDR1, HDR2].forEach((row, ri) => {
+    row.forEach((_, ci) => {
+      const ref = XLSX.utils.encode_cell({r: ri, c: ci});
+      if (ws[ref]) ws[ref].s = { font:{bold:true}, fill:{fgColor:{rgb:'D9E4F5'}}, alignment:{wrapText:true} };
+    });
   });
   XLSX.utils.book_append_sheet(wb, ws, 'Справочник МТР');
   const d = new Date();
