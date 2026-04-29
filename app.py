@@ -15,16 +15,6 @@ from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder="public")
 
-REQUIRED_FIELDS = {
-    "unit":    "Единица измерения",
-    "name":    "Наименование МТР",
-    "brand":   "Марка/Размер",
-    "article": "Каталожный номер",
-    "gost":    "ГОСТ/ТУ",
-    "spec":    "Техническая характеристика",
-    "symbol":  "Условное обозначение",
-}
-
 PROMPT = """Ты — точный экстрактор данных из технических каталогов МТР для корпоративного справочника.
 
 Из прикреплённого документа извлеки ВСЕ позиции товаров и материалов.
@@ -48,45 +38,58 @@ PROMPT = """Ты — точный экстрактор данных из тех�
 3. Все значения точно из документа, не придумывай
 4. Поля class и comment НЕ заполнять — их заполнит пользователь вручную"""
 
+REQUIRED_FIELDS = {
+    "unit":    "Единица измерения",
+    "name":    "Наименование МТР",
+    "brand":   "Марка/Размер",
+    "article": "Каталожный номер",
+    "gost":    "ГОСТ/ТУ",
+    "spec":    "Техническая характеристика",
+    "symbol":  "Условное обозначение",
+}
 
-# ── Claude (native document/vision API) ───────────────────────────────────────
 
 def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
-    """Отправляет файл напрямую в Claude API (PDF или изображение)."""
     client = anthropic.Anthropic(api_key=api_key)
 
     with open(file_path, "rb") as f:
         data = base64.standard_b64encode(f.read()).decode("utf-8")
 
     if ext == "pdf":
-        file_block: dict = {
+        content_block: dict = {
             "type": "document",
             "source": {"type": "base64", "media_type": "application/pdf", "data": data},
         }
     elif ext == "png":
-        file_block = {
+        content_block = {
             "type": "image",
             "source": {"type": "base64", "media_type": "image/png", "data": data},
         }
-    else:  # jpg / jpeg
-        file_block = {
+    else:
+        content_block = {
             "type": "image",
             "source": {"type": "base64", "media_type": "image/jpeg", "data": data},
         }
 
     message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=8000,
+        model="claude-opus-4-7",
+        max_tokens=16000,
         messages=[{
             "role": "user",
-            "content": [file_block, {"type": "text", "text": PROMPT}],
+            "content": [content_block, {"type": "text", "text": PROMPT}],
         }],
     )
 
-    return _parse_response(message.content[0].text)
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "Ответ модели был обрезан (слишком много позиций). "
+            "Попробуйте разбить каталог на несколько файлов."
+        )
+
+    return _parse_json(message.content[0].text)
 
 
-def _parse_response(raw: str) -> list[dict]:
+def _parse_json(raw: str) -> list[dict]:
     clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         parsed = json.loads(clean)
@@ -104,9 +107,7 @@ def _parse_response(raw: str) -> list[dict]:
     return []
 
 
-# ── Анализ полноты ─────────────────────────────────────────────────────────
-
-def analyze_completeness(rows: list[dict]) -> list[str]:
+def check_completeness(rows: list[dict]) -> list[str]:
     if not rows:
         return []
     warnings = []
@@ -118,11 +119,10 @@ def analyze_completeness(rows: list[dict]) -> list[str]:
     return warnings
 
 
-# ── Маршруты ───────────────────────────────────────────────────────────────
-
 @app.route("/")
 def index():
     return send_from_directory("public", "index.html")
+
 
 @app.route("/<path:filename>")
 def static_files(filename):
@@ -151,16 +151,13 @@ def extract():
 
     try:
         rows = extract_with_claude(tmp_path, ext, api_key)
-        warnings = analyze_completeness(rows)
-
+        warnings = check_completeness(rows)
         return jsonify({
             "rows": rows,
             "warnings": warnings,
             "isPartial": len(warnings) > 0,
-            "ocr_warning": None,
             "total": len(rows),
         })
-
     except anthropic.BadRequestError as e:
         return jsonify({"error": f"Файл не поддерживается Claude API: {e}"}), 422
     except RuntimeError as e:
