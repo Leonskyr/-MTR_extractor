@@ -76,7 +76,7 @@ def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
 
     message = client.messages.create(
         model="claude-opus-4-7",
-        max_tokens=32000,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
