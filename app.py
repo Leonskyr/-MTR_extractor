@@ -15,28 +15,31 @@ from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder="public")
 
-PROMPT = """Ты — точный экстрактор данных из технических каталогов МТР для корпоративного справочника.
+SYSTEM_PROMPT = """Ты — точный экстрактор данных из технических каталогов МТР (материально-технические ресурсы) для корпоративного справочника. Твоя единственная задача — извлекать позиции из документов и возвращать их строго в формате JSON-массива. Ты никогда не добавляешь пояснений, комментариев или markdown-форматирования."""
 
-Из прикреплённого документа извлеки ВСЕ позиции товаров и материалов.
+PROMPT = """Из прикреплённого документа извлеки ВСЕ позиции товаров и материалов.
 
-Верни ТОЛЬКО JSON-массив объектов. Никакого текста вокруг, никаких markdown-блоков, никаких пояснений.
+Верни ТОЛЬКО JSON-массив объектов без какого-либо текста до или после. Никаких markdown-блоков, никаких пояснений, никаких вводных слов.
 
-Каждый объект должен содержать строго эти поля (если данных нет — пустая строка ""):
-{
-  "unit":    "единица измерения. Для штучных товаров — ШТ. Угадай по смыслу если не указано",
-  "name":    "полное наименование товара. Используй название раздела/категории как основу",
-  "brand":   "тип, марка, модель — например REG, AN, H, K, SHU или другое обозначение",
-  "article": "каталожный номер точно как в документе",
-  "gost":    "ГОСТ или ТУ если есть, иначе пустая строка",
-  "spec":    "ВСЕ технические параметры через точку с запятой. Если таблица содержит строки-заголовки групп — включай этот параметр в spec каждой позиции группы",
-  "symbol":  "условное обозначение если есть, иначе пустая строка"
-}
+Формат ответа — именно такой (начинай сразу с символа "["):
+[
+  {
+    "unit": "единица измерения (ШТ, КГ, М, М2, М3, УП, КОМ, ЛИТ и т.д.; для штучных — ШТ)",
+    "name": "полное техническое наименование МТР",
+    "brand": "марка, модель, типоразмер",
+    "article": "каталожный номер точно как в документе",
+    "gost": "ГОСТ или ТУ если есть, иначе пустая строка",
+    "spec": "ВСЕ технические параметры через точку с запятой",
+    "symbol": "условное обозначение если есть, иначе пустая строка"
+  }
+]
 
 Правила:
 1. Каждая строка данных = отдельный объект в массиве
-2. Строки-заголовки групп — НЕ отдельные позиции, а параметры для позиций ниже
+2. Строки-заголовки групп — НЕ отдельные позиции; их параметры включай в поле spec каждой позиции группы
 3. Все значения точно из документа, не придумывай
-4. Поля class и comment НЕ заполнять — их заполнит пользователь вручную"""
+4. Если документ не содержит позиций — верни пустой массив: []
+5. Поля class и comment НЕ включать"""
 
 REQUIRED_FIELDS = {
     "unit":    "Единица измерения",
@@ -73,7 +76,8 @@ def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
 
     message = client.messages.create(
         model="claude-opus-4-7",
-        max_tokens=16000,
+        max_tokens=32000,
+        system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
             "content": [content_block, {"type": "text", "text": PROMPT}],
@@ -90,20 +94,47 @@ def extract_with_claude(file_path: str, ext: str, api_key: str) -> list[dict]:
 
 
 def _parse_json(raw: str) -> list[dict]:
-    clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        parsed = json.loads(clean)
+    # Strip BOM and whitespace, remove common markdown code fences
+    clean = raw.strip().lstrip("﻿")
+    clean = re.sub(r"^```[a-z]*\n?", "", clean).rstrip("`").strip()
+
+    def _try_list(parsed) -> list[dict] | None:
         if isinstance(parsed, list):
             return parsed
         if isinstance(parsed, dict):
-            return [parsed]
+            # Claude sometimes wraps the array: {"items": [...]} or {"positions": [...]}
+            for v in parsed.values():
+                if isinstance(v, list):
+                    return v
+        return None
+
+    try:
+        result = _try_list(json.loads(clean))
+        if result is not None:
+            return result
     except json.JSONDecodeError:
-        match = re.search(r"\[[\s\S]*\]", clean)
-        if match:
-            try:
-                return json.loads(match.group())
-            except Exception:
-                pass
+        pass
+
+    # Fallback: find the outermost JSON array in the response
+    match = re.search(r"\[[\s\S]*\]", clean)
+    if match:
+        try:
+            result = _try_list(json.loads(match.group()))
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+    # Last resort: find any JSON object or array fragment
+    match = re.search(r"\{[\s\S]*\}", clean)
+    if match:
+        try:
+            result = _try_list(json.loads(match.group()))
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
     return []
 
 
