@@ -653,7 +653,6 @@ table.data-table tbody td:last-child { border-right: none; text-align: center; }
             <th>Каталожный №</th>
             <th>ГОСТ / ТУ</th>
             <th>Техн. характеристика</th>
-            <th>Усл. обозн.</th>
             <th title="Заполняется пользователем вручную">Класс МТР ✎</th>
             <th title="Заполняется пользователем вручную">Комментарий ✎</th>
             <th></th>
@@ -888,8 +887,8 @@ async function runExtraction() {
 }
 
 // ── Table ──
-const FIELDS = ['unit','name','brand','article','gost','spec','symbol','class','comment'];
-const CLS    = ['narrow','medium','wide','medium','medium','spec','medium','medium','medium'];
+const FIELDS = ['unit','name','brand','article','gost','spec','class','comment'];
+const CLS    = ['narrow','medium','wide','medium','medium','spec','medium','medium'];
 
 function renderTable() {
   const tbody = document.getElementById('tableBody');
